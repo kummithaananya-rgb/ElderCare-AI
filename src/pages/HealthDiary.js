@@ -77,7 +77,6 @@ export default function HealthDiary() {
   };
 
   const entryKeys = Object.keys(entries).sort((a,b) => b.localeCompare(a));
-  const todayEntry = entries[todayKey()];
   const moodEntry  = MOODS.find(m => m.label === form.mood);
 
   return (
