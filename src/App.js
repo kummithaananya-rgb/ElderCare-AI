@@ -7,6 +7,7 @@ import EmergencySOS from './pages/EmergencySOS';
 import DailyActivities from './pages/DailyActivities';
 import FamilyContacts from './pages/FamilyContacts';
 import HealthDiary from './pages/HealthDiary';
+import AgentDashboard from './pages/AgentDashboard';
 
 const NAV_ITEMS = [
   { id: 'home',       label: '🏠 Home',            icon: '🏠' },
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
   { id: 'activities', label: '📅 Daily Activities', icon: '📅' },
   { id: 'contacts',   label: '👨‍👩‍👧 Family Contacts',  icon: '👨‍👩‍👧' },
   { id: 'diary',      label: '📓 Health Diary',     icon: '📓' },
+  { id: 'agents',     label: '🧠 Agent Hub',         icon: '🧠' },
 ];
 
 function App() {
@@ -31,6 +33,7 @@ function App() {
       case 'activities': return <DailyActivities />;
       case 'contacts':   return <FamilyContacts />;
       case 'diary':      return <HealthDiary />;
+      case 'agents':     return <AgentDashboard />;
       default:           return <Home navigate={setActivePage} />;
     }
   };

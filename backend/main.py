@@ -5,8 +5,9 @@ ElderCare AI — FastAPI backend.
 
 Endpoints
 ---------
-GET  /api/health   Liveness check (no credentials in response)
-POST /api/chat     Send a message to IBM Granite; receive a reply
+GET  /api/health        Liveness check (no credentials in response)
+POST /api/chat          Send a message using the default companion persona
+POST /api/agents/run    Send a message through the agent orchestrator
 
 Security
 --------
@@ -28,6 +29,7 @@ from pydantic import BaseModel, Field
 from typing import List
 
 import watsonx_client
+import orchestrator
 
 # ── Load .env (if present) before anything else reads os.environ ──────────────
 load_dotenv()
@@ -111,6 +113,11 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     history: List[HistoryItem] = Field(default_factory=list, max_length=20)
 
+class AgentRequest(BaseModel):
+    """Request body for POST /api/agents/run."""
+    message: str = Field(..., min_length=1, max_length=2000)
+    history: List[HistoryItem] = Field(default_factory=list, max_length=20)
+
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -155,6 +162,48 @@ async def chat_endpoint(req: ChatRequest):
         # Unexpected error — log fully, return nothing sensitive.
         logger.error(
             "Unexpected error in /api/chat:\n%s", traceback.format_exc()
+        )
+        raise HTTPException(
+            status_code=500, detail="An unexpected error occurred."
+        )
+
+
+@app.post("/api/agents/run")
+async def agents_run(req: AgentRequest):
+    """
+    Routes the message through the agent orchestrator.
+    Returns the reply plus metadata identifying which agent responded.
+
+    Response shape:
+        {
+            "reply":       "<agent response text>",
+            "agent_name":  "<internal name>",
+            "agent_label": "<display name with emoji>",
+            "agent_desc":  "<short role description>"
+        }
+
+    Error responses contain only a generic message — no credentials or
+    IBM error internals are returned to the client.
+    """
+    if _model is None:
+        logger.error("/api/agents/run called but model client is not initialised.")
+        raise HTTPException(
+            status_code=503,
+            detail="AI service is not available. Check server startup logs.",
+        )
+
+    history = [{"role": h.role, "content": h.content} for h in req.history]
+
+    try:
+        result = orchestrator.run(_model, req.message, history)
+        return result
+
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    except Exception:
+        logger.error(
+            "Unexpected error in /api/agents/run:\n%s", traceback.format_exc()
         )
         raise HTTPException(
             status_code=500, detail="An unexpected error occurred."

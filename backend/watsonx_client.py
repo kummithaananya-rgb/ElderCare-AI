@@ -64,30 +64,13 @@ def build_model() -> ModelInference:
     return model
 
 
-def chat(model: ModelInference, user_message: str, history: list) -> str:
+def _invoke(model: ModelInference, system_prompt: str, user_message: str, history: list) -> str:
     """
-    Sends a message to IBM Granite via ModelInference.chat() and returns
-    the assistant's reply as a plain string.
-
-    Parameters
-    ----------
-    model        : ModelInference instance created by build_model()
-    user_message : The user's latest message text
-    history      : List of prior turns, each a dict with 'role' and 'content'
-                   (roles must be 'user' or 'assistant')
-
-    Returns
-    -------
-    str  — The assistant's reply text
-
-    Raises
-    ------
-    RuntimeError  — A generic, credential-free message suitable for
-                    propagating toward the client. Full error detail is
-                    written to the server log only.
+    Core inference helper — builds the messages array and calls the IBM SDK.
+    Raises RuntimeError (generic, credential-free) on any failure.
+    Full error detail is written to the server log only.
     """
-    # Build the messages array: system prompt → prior history → new user turn.
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
@@ -98,8 +81,6 @@ def chat(model: ModelInference, user_message: str, history: list) -> str:
         return response["choices"][0]["message"]["content"]
 
     except Exception as exc:
-        # Write full detail (type, message, traceback) to server log only.
-        # Nothing from this block reaches the HTTP response.
         logger.error(
             "watsonx.ai ModelInference.chat() failed.\n"
             "Exception type : %s\n"
@@ -109,5 +90,40 @@ def chat(model: ModelInference, user_message: str, history: list) -> str:
             exc,
             traceback.format_exc(),
         )
-        # Raise a generic RuntimeError — no IBM internals, no credentials.
         raise RuntimeError("AI service temporarily unavailable.") from exc
+
+
+def chat(model: ModelInference, user_message: str, history: list) -> str:
+    """
+    Sends a message using the default ElderCare AI companion system prompt.
+    Used by the existing /api/chat endpoint — unchanged behaviour.
+    """
+    return _invoke(model, SYSTEM_PROMPT, user_message, history)
+
+
+def chat_with_prompt(
+    model: ModelInference,
+    system_prompt: str,
+    user_message: str,
+    history: list,
+) -> str:
+    """
+    Sends a message using a caller-supplied system prompt.
+    Used by specialised agents (Phase 2+) so each agent has its own persona.
+
+    Parameters
+    ----------
+    model         : ModelInference instance from build_model()
+    system_prompt : The agent-specific system prompt string
+    user_message  : The user's latest message text
+    history       : List of prior turns {'role': ..., 'content': ...}
+
+    Returns
+    -------
+    str  — The assistant's reply text
+
+    Raises
+    ------
+    RuntimeError  — Generic message only; full detail logged server-side.
+    """
+    return _invoke(model, system_prompt, user_message, history)
