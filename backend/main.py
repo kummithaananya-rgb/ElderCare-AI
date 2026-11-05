@@ -8,6 +8,7 @@ Endpoints
 GET  /api/health        Liveness check (no credentials in response)
 POST /api/chat          Send a message using the default companion persona
 POST /api/agents/run    Send a message through the agent orchestrator
+POST /mcp               MCP Streamable HTTP transport (read-only tools)
 
 Security
 --------
@@ -16,8 +17,10 @@ Security
   included in HTTP responses sent to the client.
 - Full error information is written to the server log (stderr) only.
 - CORS is restricted to http://localhost:3000 (CRA dev server).
+- The MCP endpoint exposes no personal data and is local-only (127.0.0.1).
 """
 
+import contextlib
 import logging
 import os
 import traceback
@@ -28,35 +31,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List
 
-import watsonx_client
-import orchestrator
-
-# ── Load .env (if present) before anything else reads os.environ ──────────────
+# ── Load .env and configure logging before importing app modules ──────────────
 load_dotenv()
 
-# ── Logging — writes to stderr; visible in the terminal where uvicorn runs ────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# ── FastAPI app ───────────────────────────────────────────────────────────────
-app = FastAPI(
-    title="ElderCare AI Backend",
-    description="IBM watsonx.ai Granite integration for ElderCare AI",
-    version="1.0.0",
-    # Disable automatic /docs and /redoc in production if desired;
-    # left enabled here for development convenience.
-)
+import watsonx_client
+import orchestrator
+import mcp_server as _mcp_module
 
-# ── CORS — allow only the local CRA dev server ────────────────────────────────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
-)
+# ── Build the MCP ASGI sub-app at import time so session_manager is
+#    initialised before the lifespan context manager runs.
+_mcp_app = _mcp_module.get_mcp_app()
 
 # ── Module-level model instance — created once at startup ─────────────────────
 _model = None
@@ -70,15 +60,17 @@ REQUIRED_ENV = [
 ]
 
 
-# ── Startup: validate env vars and initialise the model client ────────────────
-@app.on_event("startup")
-async def startup_event():
+# ── Lifespan: replaces the deprecated @app.on_event("startup") ───────────────
+# Manages both the watsonx model client and the MCP session manager.
+# The MCP session manager MUST be started here — FastAPI's app.mount()
+# does not propagate lifespan events into sub-applications.
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
     global _model
 
-    # Check all required vars are present before attempting SDK calls.
+    # 1. Validate required environment variables.
     missing = [key for key in REQUIRED_ENV if not os.getenv(key)]
     if missing:
-        # Log missing var names (not their values) and abort.
         logger.error(
             "Server startup failed — missing required environment variables: %s. "
             "Copy backend/.env.example to backend/.env and fill in your values.",
@@ -90,6 +82,7 @@ async def startup_event():
 
     logger.info("All required environment variables are present.")
 
+    # 2. Initialise the watsonx.ai model client.
     try:
         _model = watsonx_client.build_model()
         logger.info("IBM watsonx.ai ModelInference client ready.")
@@ -99,6 +92,43 @@ async def startup_event():
             traceback.format_exc(),
         )
         raise
+
+    # 3. Start the MCP Streamable HTTP session manager for the /mcp endpoint.
+    logger.info("Starting MCP Streamable HTTP session manager.")
+    async with _mcp_module.mcp.session_manager.run():
+        logger.info("MCP session manager running — /mcp endpoint is live.")
+        yield  # Application is now fully started.
+
+    # Cleanup is handled automatically when the context managers above exit.
+    logger.info("Server shutdown complete.")
+
+
+# ── FastAPI app ───────────────────────────────────────────────────────────────
+app = FastAPI(
+    title="ElderCare AI Backend",
+    description=(
+        "ElderCare AI backend powered by Meta Llama 3.3 70B via IBM watsonx.ai. "
+        "Exposes REST endpoints for chat and agent routing, and an MCP endpoint "
+        "for external tool access."
+    ),
+    version="1.0.0",
+    lifespan=lifespan,
+    # Disable automatic /docs and /redoc in production if desired;
+    # left enabled here for development convenience.
+)
+
+# ── CORS — allow only the local CRA dev server ────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
+
+# ── Mount the MCP Streamable HTTP sub-application at /mcp ────────────────────
+# streamable_http_path="/" in get_mcp_app() means the internal route is "/".
+# Combined with this mount prefix, the final endpoint is /mcp — not /mcp/mcp.
+app.mount("/mcp", _mcp_app)
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -134,7 +164,7 @@ async def health():
 async def chat_endpoint(req: ChatRequest):
     """
     Accepts a user message and optional conversation history.
-    Returns the IBM Granite assistant reply.
+    Returns the Meta Llama 3.3 70B (IBM watsonx.ai) assistant reply.
 
     Error responses contain only a generic user-facing message.
     Full error details are written to the server log only.

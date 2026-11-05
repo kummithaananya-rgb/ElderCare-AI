@@ -33,3 +33,10 @@ yarn-error.log*
 
 # Backend environment file (contains real credentials — never commit)
 backend/.env
+
+# Python generated files
+__pycache__/
+*.py[cod]
+
+# Python virtual environment
+backend/venv/
