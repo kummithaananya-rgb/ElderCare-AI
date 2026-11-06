@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 
 const GREET = {
   id: 0, from: 'bot',
-  text: "Hello! 👋 I'm your ElderCare AI companion powered by IBM Granite. I'm here to help you with health tips, reminders, and friendly conversation. What can I help you with today?",
+  text: "Hello! 👋 I'm your ElderCare AI companion powered by Meta Llama 3.3 70B via IBM watsonx.ai. I'm here to help you with health tips, reminders, and friendly conversation. What can I help you with today?",
   time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
 };
 
@@ -53,7 +53,7 @@ export default function AIAssistant() {
   const fetchReply = async (userText, history, thinkingId) => {
     setLoading(true);
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userText, history }),
@@ -111,33 +111,32 @@ export default function AIAssistant() {
 
     setInput('');
 
-    // Use a functional setState to snapshot history before any new messages
-    // are appended, then fire the async fetch as a side-effect inside.
-    setMessages(prev => {
-      const history    = buildHistory(prev);
-      const now        = Date.now();
-      const thinkingId = now + 1;
+    // Compute history and IDs from current messages state BEFORE calling
+    // setMessages, so the updater is a pure function with no side-effects.
+    // React 18 Strict Mode double-invokes updater functions to detect impurity;
+    // putting fetchReply inside the updater causes a double API call.
+    const history    = buildHistory(messages);
+    const now        = Date.now();
+    const thinkingId = now + 1;
 
-      const userMsg = {
+    setMessages(prev => [
+      ...prev,
+      {
         id: now,
         from: 'user',
         text: trimmed,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      const thinkingMsg = {
+      },
+      {
         id: thinkingId,
         from: 'bot',
         text: '⏳ Thinking…',
         time: '',
         loading: true,
-      };
+      },
+    ]);
 
-      // Side-effect inside setState: safe because fetchReply only calls
-      // setMessages and setLoading — it does not read from the snapshot.
-      fetchReply(trimmed, history, thinkingId);
-
-      return [...prev, userMsg, thinkingMsg];
-    });
+    fetchReply(trimmed, history, thinkingId);
   };
 
   const handleKey = e => { if (e.key === 'Enter') sendMessage(input); };

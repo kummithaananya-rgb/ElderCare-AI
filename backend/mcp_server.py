@@ -32,6 +32,7 @@ The model used is Meta Llama 3.3 70B via IBM watsonx.ai.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -144,6 +145,10 @@ _GUIDANCE: dict[str, str] = {
     ),
 }
 
+# ── MCP_ENABLED: set to "false" in production to disable the /mcp endpoint ──
+# Defaults to "true" locally so MCP Inspector and local tooling work unchanged.
+MCP_ENABLED: bool = os.getenv("MCP_ENABLED", "true").lower() == "true"
+
 # ── MCPServer instance ────────────────────────────────────────────────────────
 
 mcp = MCPServer(
@@ -220,7 +225,8 @@ def get_eldercare_guidance(
 
 def get_mcp_app():
     """
-    Returns the Starlette ASGI app for the MCP Streamable HTTP transport.
+    Returns the Starlette ASGI app for the MCP Streamable HTTP transport,
+    or None when MCP_ENABLED=false (production).
 
     Called once at module import time in main.py so that session_manager
     is initialised before the FastAPI lifespan context manager runs.
@@ -228,4 +234,6 @@ def get_mcp_app():
     streamable_http_path="/" is intentional: combined with app.mount("/mcp", ...)
     the final endpoint is http://127.0.0.1:8000/mcp — not /mcp/mcp.
     """
+    if not MCP_ENABLED:
+        return None
     return mcp.streamable_http_app(streamable_http_path="/", host="127.0.0.1")

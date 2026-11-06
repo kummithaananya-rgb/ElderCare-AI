@@ -1,0 +1,46 @@
+# render.yaml — Render Infrastructure-as-Code configuration for ElderCare AI backend.
+#
+# This file configures the Render web service. Non-secret values (PYTHON_VERSION,
+# DISABLE_DOCS, MCP_ENABLED) are safe to commit. Credential keys use sync: false
+# so Render prompts for their values in the dashboard — they are never stored here.
+#
+# After connecting this repo to Render, set the following in the Render dashboard:
+#   WATSONX_API_KEY      — your IBM Cloud API key
+#   WATSONX_URL          — your watsonx regional endpoint URL
+#   WATSONX_PROJECT_ID   — your watsonx project ID
+#   WATSONX_MODEL_ID     — meta-llama/llama-3-3-70b-instruct
+#   ALLOWED_ORIGINS      — https://eldercare-qevopbaq0-code-strome.vercel.app
+#                          (add your stable Vercel production URL when available)
+
+services:
+  - type: web
+    name: eldercare-ai-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      # Python version — matches the tested local environment
+      - key: PYTHON_VERSION
+        value: "3.14.2"
+
+      # IBM watsonx.ai credentials — set manually in Render dashboard (never committed)
+      - key: WATSONX_API_KEY
+        sync: false
+      - key: WATSONX_URL
+        sync: false
+      - key: WATSONX_PROJECT_ID
+        sync: false
+      - key: WATSONX_MODEL_ID
+        sync: false
+
+      # CORS: set in Render dashboard to your Vercel frontend URL
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      # Production feature flags (safe to commit — no credentials)
+      - key: DISABLE_DOCS
+        value: "true"
+      - key: MCP_ENABLED
+        value: "false"
