@@ -642,6 +642,15 @@ class IntegrationGuardrailTests(unittest.TestCase):
 
     def test_model_safe_missed_dose_education_is_preserved(self):
         safe_outputs = (
+            "You should take your medication as prescribed and set a reminder "
+            "for each dose.",
+            "You can take your medication at the same time each day and use "
+            "a reminder.",
+            "Follow your doctor's prescribed medication schedule and set an "
+            "alarm for each dose.",
+            "Use the medicine reminder to remember your existing prescribed "
+            "schedule.",
+            "Set an alarm to remind you when to take your prescribed medicine.",
             "Missed-dose instructions vary by medication; check the leaflet "
             "or ask a pharmacist.",
             "Do not take two doses to make up for a missed dose unless the "
@@ -658,6 +667,22 @@ class IntegrationGuardrailTests(unittest.TestCase):
                 self.assertEqual(
                     guardrails.sanitize_model_output(output),
                     output,
+                )
+
+    def test_unsafe_medication_recommendations_remain_sanitized(self):
+        unsafe_outputs = (
+            "You should double your medicine dose.",
+            "You should increase your medication dose.",
+            "You should take 20 mg of this medicine.",
+            "I recommend you take 20 mg of this medicine.",
+            "You should take your medication as prescribed. You can start a "
+            "new medication now.",
+        )
+        for output in unsafe_outputs:
+            with self.subTest(output=output):
+                self.assertEqual(
+                    guardrails.sanitize_model_output(output),
+                    guardrails._MEDICAL_RESPONSE,
                 )
 
     def test_sanitizer_allows_nonsecret_configuration_and_educational_text(self):

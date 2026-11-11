@@ -412,6 +412,20 @@ _NEGATED_MEDICATION_INSTRUCTION = re.compile(
     r"\b(?:unsafe|not safe)\s+to\s*$",
     re.IGNORECASE,
 )
+_UNSAFE_MEDICATION_RECOMMENDATION = re.compile(
+    r"\b(?:you should|i recommend you|you can)\s+"
+    r"(?:take|start|stop|skip|increase|decrease|double|halve|"
+    r"change|adjust)\b.{0,80}?\b(?:medicine|medication|drug|pill|"
+    r"tablet|dose|dosage|\d+\s*(?:mg|mcg|g|ml|units?))\b",
+    re.IGNORECASE,
+)
+_SAFE_MEDICATION_ROUTINE = re.compile(
+    r"\b(?:you should|i recommend you|you can)\s+take\s+"
+    r"(?:your\s+)?(?:medicines?|medications?)\s+"
+    r"(?:as prescribed|according to (?:your\s+)?"
+    r"(?:prescribed\s+)?schedule|at the same time each day)\b",
+    re.IGNORECASE,
+)
 _UNSAFE_MODEL_OUTPUT = (
     re.compile(
         r"\b(?:you (?:have|likely have|probably have)|"
@@ -419,13 +433,6 @@ _UNSAFE_MODEL_OUTPUT = (
         r"(?:sounds|looks) like (?:a |an )?"
         r"(?:stroke|heart attack|cancer|diabetes|pneumonia|"
         r"parkinsons?|alzheimers?))\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:you should|i recommend you|you can)\s+"
-        r"(?:take|start|stop|skip|increase|decrease|double|halve|"
-        r"change|adjust)\b.{0,80}\b(?:medicine|medication|drug|pill|"
-        r"tablet|dose|dosage|\d+\s*(?:mg|mcg|g|ml|units?))\b",
         re.IGNORECASE,
     ),
     re.compile(
@@ -796,6 +803,13 @@ def sanitize_model_output(
         pattern.search(output) for pattern in _UNSAFE_HARMFUL_OUTPUT
     ) or _HARMFUL_REQUEST.search(output):
         return _HARMFUL_RESPONSE
+    for match in _UNSAFE_MEDICATION_RECOMMENDATION.finditer(output):
+        if not any(
+            safe_match.start() <= match.start()
+            and safe_match.end() >= match.end()
+            for safe_match in _SAFE_MEDICATION_ROUTINE.finditer(output)
+        ):
+            return _MEDICAL_RESPONSE
     if _SENSITIVE_CONFIGURATION_ASSIGNMENT.search(output) or re.search(
         r"\bapi[_ ]key\s*[:=]\s*\S+|"
         r"\bbearer\s+[A-Za-z0-9._~-]{12,}\b",
