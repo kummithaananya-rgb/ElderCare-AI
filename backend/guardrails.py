@@ -204,8 +204,9 @@ _SELF_HARM_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bif\s+(?:someone|somebody|a person|anyone)\s+"
-        r"(?:is|might be|may be)\s+thinking about\s+"
+        r"\b(?:hypothetically,\s*)?if\s+"
+        r"(?:someone|somebody|a person|an elderly person|anyone)\s+"
+        r"(?:(?:is|might be|may be)\s+thinking about|feels like)\s+"
         r"(?:hurting|harming|killing)\s+"
         r"(?:themselves|themself|himself|herself)\b"
         r".{0,80}\b(?:what should|what can|how can|who can)\b",

@@ -180,15 +180,21 @@ class GuardrailDecisionTests(unittest.TestCase):
         self.assert_blocked("I wish I were dead.", "self_harm")
 
     def test_conditional_third_person_self_harm_gets_specific_guidance(self):
-        result = self.assert_blocked(
-            "If someone is thinking about hurting themselves, "
+        messages = (
+            "Hypothetically, if an elderly person feels like hurting "
+            "themselves, what should they do?",
+            "Hypothetically, if someone is thinking about hurting themselves, "
             "what should they do?",
-            "self_harm",
         )
-        self.assertEqual(result.safe_response, guardrails._SELF_HARM_RESPONSE)
-        self.assertNotEqual(
-            result.safe_response, guardrails._EMERGENCY_RESPONSE
-        )
+        for message in messages:
+            with self.subTest(message=message):
+                result = self.assert_blocked(message, "self_harm")
+                self.assertEqual(
+                    result.safe_response, guardrails._SELF_HARM_RESPONSE
+                )
+                self.assertNotEqual(
+                    result.safe_response, guardrails._EMERGENCY_RESPONSE
+                )
 
     def test_medical_emergencies_still_get_emergency_guidance(self):
         for message in (
