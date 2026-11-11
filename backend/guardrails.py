@@ -453,10 +453,13 @@ _UNSAFE_HARMFUL_OUTPUT = (
 )
 
 _EMERGENCY_RESPONSE = (
-    "This may be a medical emergency. If you are in India, call 112 now or "
-    "seek immediate emergency medical assistance. If you are elsewhere, call "
-    "your local emergency number. Ask someone nearby to stay with you. "
-    "ElderCare AI has not called emergency services."
+    "This may be a medical emergency. In India, call 112 now; elsewhere, call "
+    "your local emergency number. Check whether the person is breathing "
+    "normally. If they are not breathing normally, begin CPR if you are "
+    "trained and follow the emergency dispatcher's instructions. If they are "
+    "breathing normally, keep monitoring them and follow the dispatcher's "
+    "instructions. Do not give them food, water, or medication. ElderCare AI "
+    "has not called emergency services."
 )
 _SELF_HARM_RESPONSE = (
     "I’m sorry you’re facing this, and I’m glad you told me. Please contact "
