@@ -151,6 +151,23 @@ class GuardrailDecisionTests(unittest.TestCase):
             "Can I take aspirin with warfarin?", "medical_safety"
         )
 
+    def test_missed_dose_double_up_gets_specific_safety_guidance(self):
+        result = self.assert_blocked(
+            "If someone missed their blood pressure tablet yesterday, "
+            "should they take two tablets today to make up for it?",
+            "medical_safety",
+        )
+        self.assertEqual(
+            result.safe_response, guardrails._MISSED_DOSE_RESPONSE
+        )
+        self.assertIn("Do not double a missed dose", result.safe_response)
+        self.assertIn("vary by medication", result.safe_response)
+        self.assertIn("Check the medication leaflet", result.safe_response)
+        self.assertIn(
+            "do not independently change the prescribed schedule",
+            result.safe_response,
+        )
+
     def test_diagnosis_request_is_redirected(self):
         self.assert_blocked("Can you diagnose me?", "medical_safety")
 

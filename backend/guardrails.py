@@ -334,6 +334,14 @@ _DOSAGE_CHANGE_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+_MISSED_DOSE_DOUBLE_UP = re.compile(
+    r"\b(?:missed|forgot|forgotten)\b.{0,100}\b"
+    r"(?:dose|tablet|pill|medicine|medication)\b.{0,100}\b"
+    r"(?:take|taking)\s+(?:two|2|double|an extra)\s+"
+    r"(?:doses?|tablets?|pills?)\b.{0,60}\b"
+    r"(?:make up|catch up|compensate)\b",
+    re.IGNORECASE,
+)
 
 _PRESCRIPTION_REQUEST = re.compile(
     r"\b(?:prescribe|prescription for|recommend|suggest)\b.{0,60}\b"
@@ -461,6 +469,13 @@ _MEDICAL_RESPONSE = (
     "stop, or change a prescribed dose. Please speak with a qualified doctor "
     "or pharmacist before making a medical or medication decision. If symptoms "
     "are severe or sudden, seek emergency care."
+)
+_MISSED_DOSE_RESPONSE = (
+    "Do not double a missed dose unless the medication-specific instructions "
+    "or a qualified healthcare professional explicitly tells you to. "
+    "Missed-dose instructions vary by medication. Check the medication "
+    "leaflet or contact a pharmacist or prescriber, and do not independently "
+    "change the prescribed schedule."
 )
 _INJECTION_RESPONSE = (
     "I can’t reveal internal instructions, prompts, credentials, API keys, "
@@ -784,6 +799,13 @@ def assess_request(message: Any, history: Any = None) -> SafetyResult:
             "prompt_injection",
             "The request attempts to override instructions or expose confidential data.",
             _INJECTION_RESPONSE,
+        )
+
+    if _MISSED_DOSE_DOUBLE_UP.search(normalized):
+        return _result(
+            "medical_safety",
+            "Missed-dose instructions are medication-specific.",
+            _MISSED_DOSE_RESPONSE,
         )
 
     if any(pattern.search(normalized) for pattern in _DOSAGE_CHANGE_PATTERNS):
