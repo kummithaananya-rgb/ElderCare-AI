@@ -566,6 +566,47 @@ class IntegrationGuardrailTests(unittest.TestCase):
                 self.assertIn(safe_fragment, reply)
                 self.assertNotIn(unsafe_fragment, reply)
 
+    def test_model_missed_dose_double_up_instructions_are_sanitized(self):
+        unsafe_outputs = (
+            "Take two tablets today to make up for the missed dose.",
+            "You should take two tablets today to make up for the missed dose.",
+            "Give her two tablets to make up for yesterday.",
+            "Take 2 tablets today to make up for the missed dose.",
+            "For a missed dose, administer three pills to catch up.",
+            "If you forgot a dose, take 4 capsules to compensate.",
+            "After a missed dose, give her two of her usual tablets.",
+            "Take 10 mg to make up for the missed dose.",
+            "Take five tablets to make up for a missed dose.",
+            "Take another tablet to compensate for a missed dose.",
+            "Do not ignore this advice: take two tablets to make up for a missed dose.",
+        )
+        for output in unsafe_outputs:
+            with self.subTest(output=output):
+                self.assertEqual(
+                    guardrails.sanitize_model_output(output),
+                    guardrails._MEDICAL_RESPONSE,
+                )
+
+    def test_model_safe_missed_dose_education_is_preserved(self):
+        safe_outputs = (
+            "Missed-dose instructions vary by medication; check the leaflet "
+            "or ask a pharmacist.",
+            "Do not take two doses to make up for a missed dose unless the "
+            "medication instructions or a qualified professional says to.",
+            "You should never take two tablets to make up for a missed dose.",
+            "It is unsafe to take two tablets to catch up after missing a dose.",
+            "Do not give two tablets to compensate for a missed dose.",
+            "If you miss a dose, follow the medication leaflet and do not "
+            "double the next dose.",
+            "A reminder can help you take your medicine on its usual schedule.",
+        )
+        for output in safe_outputs:
+            with self.subTest(output=output):
+                self.assertEqual(
+                    guardrails.sanitize_model_output(output),
+                    output,
+                )
+
     def test_sanitizer_allows_nonsecret_configuration_and_educational_text(self):
         for output in (
             "The PORT=8000 setting selects the local web server port.",
@@ -613,6 +654,48 @@ class IntegrationGuardrailTests(unittest.TestCase):
                 self.assertNotIn(
                     "You have hypertension", response.json()["reply"]
                 )
+        finally:
+            main._model = original_model
+
+    def test_missed_dose_model_output_is_sanitized_by_both_api_routes(self):
+        original_model = main._model
+        model = Mock()
+        main._model = model
+        try:
+            client = TestClient(main.app)
+            model.chat.return_value = {
+                "choices": [{
+                    "message": {
+                        "content": (
+                            "Take two tablets today to make up for the missed dose."
+                        )
+                    }
+                }]
+            }
+            chat_response = client.post(
+                "/api/chat", json={"message": "Tell me about hydration."}
+            )
+
+            model.chat.return_value = {
+                "choices": [{
+                    "message": {
+                        "content": "Give her two tablets to make up for yesterday."
+                    }
+                }]
+            }
+            agent_response = client.post(
+                "/api/agents/run",
+                json={"message": "Tell me about hydration."},
+            )
+
+            self.assertEqual(chat_response.status_code, 200)
+            self.assertEqual(
+                chat_response.json()["reply"], guardrails._MEDICAL_RESPONSE
+            )
+            self.assertEqual(agent_response.status_code, 200)
+            self.assertEqual(
+                agent_response.json()["reply"], guardrails._MEDICAL_RESPONSE
+            )
         finally:
             main._model = original_model
 

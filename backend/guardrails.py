@@ -374,6 +374,44 @@ _HARMFUL_REQUEST = re.compile(
     r"how to cause (?:an overdose|serious injury|harm))\b",
     re.IGNORECASE,
 )
+_MISSED_DOSE_OUTPUT_QUANTITY = (
+    r"(?:an?\s+extra|another|one|two|three|four|five|\d+|double|twice)"
+)
+_MISSED_DOSE_OUTPUT_UNIT = (
+    r"(?:\s+extra)?\s+"
+    r"(?:(?:of\s+)?(?:your|their|her|his|the)\s+)?"
+    r"(?:(?:usual|regular|normal|prescribed)\s+)?"
+    r"(?:doses?|tablets?|pills?|capsules?|mg|mcg|g|ml|units?)\b"
+)
+_MISSED_DOSE_DOUBLE_UP_INSTRUCTION = re.compile(
+    r"\b(?:take|give|administer)\b.{0,45}\b"
+    + _MISSED_DOSE_OUTPUT_QUANTITY
+    + r"\b"
+    + _MISSED_DOSE_OUTPUT_UNIT
+    + r".{0,80}"
+    r"(?:\b(?:missed|missing|forgot|forgotten)\b.{0,35}\b"
+    r"(?:dose|tablet|pill|medicine|medication)\b|"
+    r"\b(?:make up|catch up|compensat\w*|replace)\b)|"
+    r"\b(?:missed|missing|forgot|forgotten)\b.{0,35}\b"
+    r"(?:dose|tablet|pill|medicine|medication)\b.{0,80}"
+    r"\b(?:take|give|administer)\b.{0,45}\b"
+    + _MISSED_DOSE_OUTPUT_QUANTITY
+    + r"\b"
+    + _MISSED_DOSE_OUTPUT_UNIT
+    + r"|"
+    r"\b(?:make up|catch up|compensat\w*|replace)\b.{0,80}"
+    r"\b(?:take|give|administer)\b.{0,45}\b"
+    + _MISSED_DOSE_OUTPUT_QUANTITY
+    + r"\b"
+    + _MISSED_DOSE_OUTPUT_UNIT,
+    re.IGNORECASE,
+)
+_NEGATED_MEDICATION_INSTRUCTION = re.compile(
+    r"\b(?:do not|don't|never|must not|should not|shouldn't|cannot|"
+    r"can't|avoid|not)\s+(?:ever\s+)?$|"
+    r"\b(?:unsafe|not safe)\s+to\s*$",
+    re.IGNORECASE,
+)
 _UNSAFE_MODEL_OUTPUT = (
     re.compile(
         r"\b(?:you (?:have|likely have|probably have)|"
@@ -735,6 +773,23 @@ def sanitize_model_output(
                     return _INJECTION_RESPONSE
     if _MODEL_OUTPUT_DISCLOSURE.search(output):
         return _INJECTION_RESPONSE
+    for match in _MISSED_DOSE_DOUBLE_UP_INSTRUCTION.finditer(output):
+        action = re.search(
+            r"\b(?:take|give|administer)\b",
+            match.group(),
+            re.IGNORECASE,
+        )
+        if action is None:
+            continue
+        action_start = match.start() + action.start()
+        clause_start = max(
+            output.rfind(separator, 0, action_start)
+            for separator in ".!?;\n"
+        ) + 1
+        if not _NEGATED_MEDICATION_INSTRUCTION.search(
+            output[clause_start:action_start]
+        ):
+            return _MEDICAL_RESPONSE
     if any(pattern.search(output) for pattern in _UNSAFE_MODEL_OUTPUT):
         return _MEDICAL_RESPONSE
     if any(
