@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import guardrails
+import orchestrator
 from agents import (
     HealthMonitorAgent,
     MedicineAdvisorAgent,
@@ -16,6 +17,48 @@ with patch("dotenv.load_dotenv"):
     import main
 
 from fastapi.testclient import TestClient
+
+
+class AgentRoutingTests(unittest.TestCase):
+    def test_wellness_and_activity_questions_route_to_health_monitor(self):
+        messages = (
+            "I want to improve my daily wellness. Can you suggest some healthy "
+            "habits for staying active and hydrated?",
+            "What are some healthy habits for staying active and hydrated?",
+        )
+        for message in messages:
+            with self.subTest(message=message):
+                self.assertEqual(
+                    orchestrator._classify(message).name,
+                    "HealthMonitor",
+                )
+                self.assertTrue(guardrails.assess_request(message).can_proceed)
+
+    def test_prescribed_medicine_schedule_routes_to_medicine_advisor(self):
+        message = (
+            "Can you explain why I should follow my prescribed medicine schedule?"
+        )
+        self.assertEqual(
+            orchestrator._classify(message).name,
+            "MedicineAdvisor",
+        )
+        self.assertTrue(guardrails.assess_request(message).can_proceed)
+
+    def test_loneliness_routes_to_wellbeing_companion(self):
+        self.assertEqual(
+            orchestrator._classify("I feel lonely and stressed today.").name,
+            "WellbeingCompanion",
+        )
+
+    def test_missed_dose_compensation_remains_blocked_by_guardrails(self):
+        message = (
+            "I missed my dose yesterday. Should I take two tablets today "
+            "to make up for it?"
+        )
+        result = guardrails.assess_request(message)
+        self.assertFalse(result.can_proceed)
+        self.assertEqual(result.category, "medical_safety")
+        self.assertEqual(result.safe_response, guardrails._MISSED_DOSE_RESPONSE)
 
 
 class GuardrailDecisionTests(unittest.TestCase):
