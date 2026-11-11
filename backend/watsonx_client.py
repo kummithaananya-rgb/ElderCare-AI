@@ -10,10 +10,11 @@ Full error details are written to the server log (stderr) only.
 
 import logging
 import os
-import traceback
 
 from ibm_watsonx_ai import APIClient, Credentials
 from ibm_watsonx_ai.foundation_models import ModelInference
+
+import guardrails
 
 logger = logging.getLogger(__name__)
 
@@ -70,27 +71,36 @@ def _invoke(model: ModelInference, system_prompt: str, user_message: str, histor
     Raises RuntimeError (generic, credential-free) on any failure.
     Full error detail is written to the server log only.
     """
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
+    safety = guardrails.assess_request(user_message, history)
+    if not safety.can_proceed:
+        if safety.safe_response is None:
+            raise RuntimeError("Safety check blocked the request without a response.")
+        return safety.safe_response
+
+    messages = [{
+        "role": "system",
+        "content": f"{system_prompt}\n\n{guardrails.MODEL_SAFETY_INSTRUCTION}",
+    }]
+    messages.extend(
+        guardrails.filter_resolved_safety_history(history, user_message)
+    )
     messages.append({"role": "user", "content": user_message})
 
     try:
         response = model.chat(messages=messages)
         # IBM SDK documented response shape:
         #   response["choices"][0]["message"]["content"]
-        return response["choices"][0]["message"]["content"]
+        return guardrails.sanitize_model_output(
+            response["choices"][0]["message"]["content"],
+            protected_texts=(system_prompt, guardrails.MODEL_SAFETY_INSTRUCTION),
+        )
 
     except Exception as exc:
         logger.error(
-            "watsonx.ai ModelInference.chat() failed.\n"
-            "Exception type : %s\n"
-            "Message        : %s\n"
-            "Traceback      :\n%s",
+            "watsonx.ai ModelInference.chat() failed; exception type: %s",
             type(exc).__name__,
-            exc,
-            traceback.format_exc(),
         )
-        raise RuntimeError("AI service temporarily unavailable.") from exc
+        raise RuntimeError("AI service temporarily unavailable.") from None
 
 
 def chat(model: ModelInference, user_message: str, history: list) -> str:

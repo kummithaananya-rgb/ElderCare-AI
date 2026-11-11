@@ -17,6 +17,7 @@ import re
 from ibm_watsonx_ai.foundation_models import ModelInference
 
 import watsonx_client
+import guardrails
 from agents import HealthMonitorAgent, MedicineAdvisorAgent, WellbeingCompanionAgent
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,15 @@ def run(model: ModelInference, message: str, history: list) -> dict:
     ------
     RuntimeError — generic, credential-free; original logged server-side.
     """
+    safety = guardrails.assess_request(message, history)
+    if not safety.can_proceed:
+        return {
+            "reply": safety.safe_response,
+            "agent_name": "SafetyGuardrails",
+            "agent_label": "🛡️ Safety Guidance",
+            "agent_desc": safety.category,
+        }
+
     agent = _classify(message)
     logger.info("Orchestrator routed to: %s", agent.name)
 

@@ -26,12 +26,13 @@ Security
 import contextlib
 import logging
 import os
-import traceback
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -48,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 import watsonx_client
 import orchestrator
+import guardrails
 import mcp_server as _mcp_module
 
 # ── Build the MCP ASGI sub-app at import time so session_manager is
@@ -103,12 +105,12 @@ async def lifespan(app: FastAPI):
     try:
         _model = watsonx_client.build_model()
         logger.info("IBM watsonx.ai ModelInference client ready.")
-    except Exception:
+    except Exception as exc:
         logger.error(
-            "Failed to initialise IBM watsonx.ai client:\n%s",
-            traceback.format_exc(),
+            "Failed to initialise IBM watsonx.ai client; exception type: %s",
+            type(exc).__name__,
         )
-        raise
+        raise RuntimeError("IBM watsonx.ai initialization failed.") from None
 
     # 3. Start the MCP session manager only when MCP is enabled.
     if _mcp_module.MCP_ENABLED:
@@ -143,6 +145,25 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    """Return validation errors without echoing submitted health data."""
+    logger.info("Rejected invalid request for %s", request.url.path)
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": (
+                "Invalid request. Check the message and conversation history "
+                "limits and allowed roles."
+            )
+        },
+    )
+
+
 # ── CORS — origins controlled by ALLOWED_ORIGINS env var ─────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -165,15 +186,60 @@ class HistoryItem(BaseModel):
     role: str = Field(..., pattern="^(user|assistant)$")
     content: str
 
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("History content must not be empty.")
+        if len(value) > guardrails.MAX_HISTORY_ITEM_LENGTH:
+            raise ValueError(
+                "Each history item must be at most "
+                f"{guardrails.MAX_HISTORY_ITEM_LENGTH} characters."
+            )
+        return value
+
 class ChatRequest(BaseModel):
     """Request body for POST /api/chat."""
-    message: str = Field(..., min_length=1, max_length=2000)
-    history: List[HistoryItem] = Field(default_factory=list, max_length=20)
+    message: str
+    history: List[HistoryItem] = Field(
+        default_factory=list, max_length=guardrails.MAX_HISTORY_ITEMS
+    )
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        return guardrails.validate_message(value)
+
+    @model_validator(mode="after")
+    def validate_history_size(self):
+        guardrails.validate_history(self.history)
+        return self
 
 class AgentRequest(BaseModel):
     """Request body for POST /api/agents/run."""
-    message: str = Field(..., min_length=1, max_length=2000)
-    history: List[HistoryItem] = Field(default_factory=list, max_length=20)
+    message: str
+    history: List[HistoryItem] = Field(
+        default_factory=list, max_length=guardrails.MAX_HISTORY_ITEMS
+    )
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        return guardrails.validate_message(value)
+
+    @model_validator(mode="after")
+    def validate_history_size(self):
+        guardrails.validate_history(self.history)
+        return self
+
+
+def _blocked_agent_response(result: guardrails.SafetyResult) -> dict:
+    return {
+        "reply": result.safe_response,
+        "agent_name": "SafetyGuardrails",
+        "agent_label": "🛡️ Safety Guidance",
+        "agent_desc": result.category,
+    }
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -198,6 +264,11 @@ async def chat_endpoint(request: Request, req: ChatRequest):
     Error responses contain only a generic user-facing message.
     Full error details are written to the server log only.
     """
+    history = [{"role": h.role, "content": h.content} for h in req.history]
+    safety = guardrails.assess_request(req.message, history)
+    if not safety.can_proceed:
+        return {"reply": safety.safe_response}
+
     if _model is None:
         logger.error("/api/chat called but model client is not initialised.")
         raise HTTPException(
@@ -205,22 +276,23 @@ async def chat_endpoint(request: Request, req: ChatRequest):
             detail="AI service is not available. Check server startup logs.",
         )
 
-    # Convert Pydantic models to plain dicts for the SDK.
-    history = [{"role": h.role, "content": h.content} for h in req.history]
-
     try:
         reply = watsonx_client.chat(_model, req.message, history)
         return {"reply": reply}
 
     except RuntimeError as exc:
-        # watsonx_client.chat() raises RuntimeError with a generic message.
-        # The original IBM exception is already logged inside the wrapper.
-        raise HTTPException(status_code=503, detail=str(exc))
-
-    except Exception:
-        # Unexpected error — log fully, return nothing sensitive.
         logger.error(
-            "Unexpected error in /api/chat:\n%s", traceback.format_exc()
+            "AI service unavailable for /api/chat; exception type: %s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503, detail="AI service is temporarily unavailable."
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Unexpected error in /api/chat; exception type: %s",
+            type(exc).__name__,
         )
         raise HTTPException(
             status_code=500, detail="An unexpected error occurred."
@@ -246,6 +318,11 @@ async def agents_run(request: Request, req: AgentRequest):
     Error responses contain only a generic message — no credentials or
     IBM error internals are returned to the client.
     """
+    history = [{"role": h.role, "content": h.content} for h in req.history]
+    safety = guardrails.assess_request(req.message, history)
+    if not safety.can_proceed:
+        return _blocked_agent_response(safety)
+
     if _model is None:
         logger.error("/api/agents/run called but model client is not initialised.")
         raise HTTPException(
@@ -253,18 +330,23 @@ async def agents_run(request: Request, req: AgentRequest):
             detail="AI service is not available. Check server startup logs.",
         )
 
-    history = [{"role": h.role, "content": h.content} for h in req.history]
-
     try:
         result = orchestrator.run(_model, req.message, history)
         return result
 
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-
-    except Exception:
         logger.error(
-            "Unexpected error in /api/agents/run:\n%s", traceback.format_exc()
+            "AI service unavailable for /api/agents/run; exception type: %s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503, detail="AI service is temporarily unavailable."
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Unexpected error in /api/agents/run; exception type: %s",
+            type(exc).__name__,
         )
         raise HTTPException(
             status_code=500, detail="An unexpected error occurred."
