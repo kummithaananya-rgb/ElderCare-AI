@@ -4,15 +4,15 @@ agents.py
 ElderCare AI — Phase 2: Specialised Agent definitions.
 
 Each agent class wraps a distinct system prompt and delegates
-inference to the existing watsonx_client.chat() function.
+inference through the shared watsonx_client facade.
 
 No credentials are held by agents — they receive the already-
 initialised ModelInference instance from main.py at call time.
 """
 
 import logging
-from ibm_watsonx_ai.foundation_models import ModelInference
 import watsonx_client
+from model_providers import ModelProvider
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +44,9 @@ class HealthMonitorAgent:
     display_name = "🩺 Health Monitor"
     description = "Health, wellness & vitals specialist"
 
-    def run(self, model: ModelInference, message: str, history: list) -> str:
+    def run(self, model: ModelProvider, message: str, history: list) -> str:
         """
-        Call IBM watsonx.ai using the HealthMonitor system prompt.
+        Call the configured model provider using the HealthMonitor prompt.
         Returns the reply string or raises RuntimeError on failure.
         """
         logger.info("HealthMonitorAgent handling message")
@@ -83,7 +83,7 @@ class MedicineAdvisorAgent:
     display_name = "💊 Medicine Advisor"
     description = "Medication schedules & general guidance"
 
-    def run(self, model: ModelInference, message: str, history: list) -> str:
+    def run(self, model: ModelProvider, message: str, history: list) -> str:
         logger.info("MedicineAdvisorAgent handling message")
         return watsonx_client.chat_with_prompt(
             model, MEDICINE_ADVISOR_PROMPT, message, history
@@ -121,7 +121,7 @@ class WellbeingCompanionAgent:
     display_name = "💙 Wellbeing Companion"
     description = "Emotional support & daily wellbeing"
 
-    def run(self, model: ModelInference, message: str, history: list) -> str:
+    def run(self, model: ModelProvider, message: str, history: list) -> str:
         logger.info("WellbeingCompanionAgent handling message")
         return watsonx_client.chat_with_prompt(
             model, WELLBEING_COMPANION_PROMPT, message, history

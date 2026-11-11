@@ -15,6 +15,7 @@ from ibm_watsonx_ai import APIClient, Credentials
 from ibm_watsonx_ai.foundation_models import ModelInference
 
 import guardrails
+from model_providers import IBMWatsonxProvider, ModelProvider
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,10 @@ REQUIRED_ENV_VARS = [
 ]
 
 
-def build_model() -> ModelInference:
+def build_model() -> ModelProvider:
     """
-    Reads credentials from environment variables and returns a ModelInference
-    instance configured for the Granite model.
+    Reads IBM credentials from environment variables and returns the default
+    watsonx.ai provider.
 
     Called once at application startup (not per-request).
     Raises KeyError if a required environment variable is missing.
@@ -62,10 +63,15 @@ def build_model() -> ModelInference:
 
     # Log the model ID at startup (server-side only — never sent to clients).
     logger.info("ModelInference initialised with model: %s", model_id)
-    return model
+    return IBMWatsonxProvider(model)
 
 
-def _invoke(model: ModelInference, system_prompt: str, user_message: str, history: list) -> str:
+def _invoke(
+    model: ModelProvider | ModelInference,
+    system_prompt: str,
+    user_message: str,
+    history: list,
+) -> str:
     """
     Core inference helper — builds the messages array and calls the IBM SDK.
     Raises RuntimeError (generic, credential-free) on any failure.
@@ -87,23 +93,30 @@ def _invoke(model: ModelInference, system_prompt: str, user_message: str, histor
     messages.append({"role": "user", "content": user_message})
 
     try:
-        response = model.chat(messages=messages)
-        # IBM SDK documented response shape:
-        #   response["choices"][0]["message"]["content"]
+        provider = (
+            IBMWatsonxProvider(model)
+            if isinstance(model, ModelInference)
+            else model
+        )
+        generated_text = provider.generate(messages)
         return guardrails.sanitize_model_output(
-            response["choices"][0]["message"]["content"],
+            generated_text,
             protected_texts=(system_prompt, guardrails.MODEL_SAFETY_INSTRUCTION),
         )
 
     except Exception as exc:
         logger.error(
-            "watsonx.ai ModelInference.chat() failed; exception type: %s",
+            "Model provider inference failed; exception type: %s",
             type(exc).__name__,
         )
         raise RuntimeError("AI service temporarily unavailable.") from None
 
 
-def chat(model: ModelInference, user_message: str, history: list) -> str:
+def chat(
+    model: ModelProvider | ModelInference,
+    user_message: str,
+    history: list,
+) -> str:
     """
     Sends a message using the default ElderCare AI companion system prompt.
     Used by the existing /api/chat endpoint — unchanged behaviour.
@@ -112,7 +125,7 @@ def chat(model: ModelInference, user_message: str, history: list) -> str:
 
 
 def chat_with_prompt(
-    model: ModelInference,
+    model: ModelProvider | ModelInference,
     system_prompt: str,
     user_message: str,
     history: list,
@@ -123,7 +136,7 @@ def chat_with_prompt(
 
     Parameters
     ----------
-    model         : ModelInference instance from build_model()
+    model         : Provider implementing the shared inference interface
     system_prompt : The agent-specific system prompt string
     user_message  : The user's latest message text
     history       : List of prior turns {'role': ..., 'content': ...}

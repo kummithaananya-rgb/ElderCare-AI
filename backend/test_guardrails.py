@@ -471,7 +471,7 @@ class IntegrationGuardrailTests(unittest.TestCase):
         for agent in agents:
             reply = agent.run(model, "Should I stop my medicine?", [])
             self.assertIn("qualified doctor", reply)
-        model.chat.assert_not_called()
+        model.generate.assert_not_called()
 
     def test_default_chat_cannot_bypass_the_guard(self):
         with patch.object(watsonx_client, "ModelInference") as model:
@@ -479,7 +479,19 @@ class IntegrationGuardrailTests(unittest.TestCase):
                 model, "I have chest pain right now.", []
             )
         self.assertIn("112", reply)
-        model.chat.assert_not_called()
+        model.generate.assert_not_called()
+
+    def test_chat_accepts_legacy_ibm_model_inference_instances(self):
+        model = Mock(spec=watsonx_client.ModelInference)
+        model.chat.return_value = {
+            "choices": [{"message": {"content": "Hello there."}}]
+        }
+
+        self.assertEqual(
+            watsonx_client.chat(model, "Hello", []),
+            "Hello there.",
+        )
+        model.chat.assert_called_once()
 
     def test_model_generated_medical_advice_and_secrets_are_sanitized(self):
         model = Mock()
@@ -557,9 +569,7 @@ class IntegrationGuardrailTests(unittest.TestCase):
         )
         for output, safe_fragment, unsafe_fragment in unsafe_outputs:
             with self.subTest(output=output):
-                model.chat.return_value = {
-                    "choices": [{"message": {"content": output}}]
-                }
+                model.generate.return_value = output
                 reply = watsonx_client.chat(
                     model, "Tell me about hydration.", []
                 )
@@ -627,18 +637,14 @@ class IntegrationGuardrailTests(unittest.TestCase):
 
     def test_malformed_model_output_gets_safe_fallback(self):
         model = Mock()
-        model.chat.return_value = {
-            "choices": [{"message": {"content": ""}}]
-        }
+        model.generate.return_value = ""
         reply = watsonx_client.chat(model, "Hello", [])
         self.assertIn("couldn’t prepare a safe response", reply)
 
     def test_api_routes_return_sanitized_model_output(self):
         original_model = main._model
         model = Mock()
-        model.chat.return_value = {
-            "choices": [{"message": {"content": "You have hypertension."}}]
-        }
+        model.generate.return_value = "You have hypertension."
         main._model = model
         try:
             client = TestClient(main.app)
@@ -663,26 +669,16 @@ class IntegrationGuardrailTests(unittest.TestCase):
         main._model = model
         try:
             client = TestClient(main.app)
-            model.chat.return_value = {
-                "choices": [{
-                    "message": {
-                        "content": (
-                            "Take two tablets today to make up for the missed dose."
-                        )
-                    }
-                }]
-            }
+            model.generate.return_value = (
+                "Take two tablets today to make up for the missed dose."
+            )
             chat_response = client.post(
                 "/api/chat", json={"message": "Tell me about hydration."}
             )
 
-            model.chat.return_value = {
-                "choices": [{
-                    "message": {
-                        "content": "Give her two tablets to make up for yesterday."
-                    }
-                }]
-            }
+            model.generate.return_value = (
+                "Give her two tablets to make up for yesterday."
+            )
             agent_response = client.post(
                 "/api/agents/run",
                 json={"message": "Tell me about hydration."},
@@ -701,7 +697,7 @@ class IntegrationGuardrailTests(unittest.TestCase):
 
     def test_provider_exception_logs_type_without_message_contents(self):
         model = Mock()
-        model.chat.side_effect = RuntimeError(
+        model.generate.side_effect = RuntimeError(
             "sensitive request content must not enter logs"
         )
         with self.assertLogs(watsonx_client.logger, level="ERROR") as captured:

@@ -14,11 +14,11 @@ keeping latency low and avoiding a double-call overhead.
 
 import logging
 import re
-from ibm_watsonx_ai.foundation_models import ModelInference
 
 import watsonx_client
 import guardrails
 from agents import HealthMonitorAgent, MedicineAdvisorAgent, WellbeingCompanionAgent
+from model_providers import ModelProvider
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +90,13 @@ def _classify(message: str):
     return _wellbeing_agent
 
 
-def run(model: ModelInference, message: str, history: list) -> dict:
+def run(model: ModelProvider, message: str, history: list) -> dict:
     """
     Route the message to the correct agent and return its reply.
 
     Parameters
     ----------
-    model   : ModelInference instance from build_model()
+    model   : Provider implementing the shared inference interface
     message : The user's latest message
     history : List of prior turns [{'role': ..., 'content': ...}]
 
