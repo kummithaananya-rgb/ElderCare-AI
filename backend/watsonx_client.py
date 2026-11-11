@@ -15,7 +15,11 @@ from ibm_watsonx_ai import APIClient, Credentials
 from ibm_watsonx_ai.foundation_models import ModelInference
 
 import guardrails
-from model_providers import IBMWatsonxProvider, ModelProvider
+from model_providers import (
+    GeminiProvider,
+    IBMWatsonxProvider,
+    ModelProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +43,44 @@ REQUIRED_ENV_VARS = [
 ]
 
 
+def configured_provider_name() -> str:
+    """Return the selected provider name, defaulting to IBM watsonx."""
+    provider_name = os.getenv("AI_PROVIDER", "watsonx").strip().lower()
+    if provider_name not in {"watsonx", "gemini"}:
+        raise ValueError("AI_PROVIDER must be 'watsonx' or 'gemini'.")
+    return provider_name
+
+
+def required_env_vars() -> list[str]:
+    """Return required configuration names for the selected provider."""
+    if configured_provider_name() == "gemini":
+        return ["GEMINI_API_KEY", "GEMINI_MODEL_ID"]
+    return REQUIRED_ENV_VARS.copy()
+
+
 def build_model() -> ModelProvider:
     """
-    Reads IBM credentials from environment variables and returns the default
-    watsonx.ai provider.
+    Build the configured provider, defaulting to IBM watsonx.ai.
 
     Called once at application startup (not per-request).
-    Raises KeyError if a required environment variable is missing.
+    Raises a generic configuration error if required settings are missing.
     """
+    provider_name = configured_provider_name()
+    missing = [
+        key for key in required_env_vars()
+        if not os.getenv(key)
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Missing required provider configuration: {', '.join(missing)}"
+        )
+
+    if provider_name == "gemini":
+        return GeminiProvider(
+            api_key=os.environ["GEMINI_API_KEY"],
+            model_id=os.environ["GEMINI_MODEL_ID"],
+        )
+
     api_key    = os.environ["WATSONX_API_KEY"]
     url        = os.environ["WATSONX_URL"]
     project_id = os.environ["WATSONX_PROJECT_ID"]
@@ -73,7 +107,7 @@ def _invoke(
     history: list,
 ) -> str:
     """
-    Core inference helper — builds the messages array and calls the IBM SDK.
+    Core inference helper — builds messages, invokes the provider, and sanitizes output.
     Raises RuntimeError (generic, credential-free) on any failure.
     Full error detail is written to the server log only.
     """

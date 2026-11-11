@@ -12,8 +12,8 @@ POST /mcp               MCP Streamable HTTP transport (read-only tools, local on
 
 Security
 --------
-- All IBM credentials are read from environment variables only.
-- No credential, model ID, endpoint URL, or IBM error detail is ever
+- Provider credentials are read from environment variables only.
+- No credential, model ID, endpoint URL, or provider error detail is ever
   included in HTTP responses sent to the client.
 - Full error information is written to the server log (stderr) only.
 - CORS origins are read from ALLOWED_ORIGINS env var (comma-separated).
@@ -60,14 +60,6 @@ _mcp_app = _mcp_module.get_mcp_app()
 # ── Module-level model instance — created once at startup ─────────────────────
 _model = None
 
-# ── Required environment variable names ──────────────────────────────────────
-REQUIRED_ENV = [
-    "WATSONX_API_KEY",
-    "WATSONX_URL",
-    "WATSONX_PROJECT_ID",
-    "WATSONX_MODEL_ID",
-]
-
 # ── CORS origins — read from env, default to localhost for local development ──
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
@@ -80,19 +72,26 @@ limiter = Limiter(key_func=get_remote_address)
 
 
 # ── Lifespan: replaces the deprecated @app.on_event("startup") ───────────────
-# Manages both the watsonx model client and the MCP session manager.
+# Manages the selected model provider and MCP session manager.
 # The MCP session manager MUST be started here — FastAPI's app.mount()
 # does not propagate lifespan events into sub-applications.
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     global _model
 
-    # 1. Validate required environment variables.
-    missing = [key for key in REQUIRED_ENV if not os.getenv(key)]
+    # 1. Validate required environment variables for the selected provider.
+    try:
+        provider_name = watsonx_client.configured_provider_name()
+        required_env = watsonx_client.required_env_vars()
+    except ValueError:
+        logger.error("Unsupported AI_PROVIDER configuration.")
+        raise RuntimeError("AI provider configuration is invalid.") from None
+
+    missing = [key for key in required_env if not os.getenv(key)]
     if missing:
         logger.error(
             "Server startup failed — missing required environment variables: %s. "
-            "Copy backend/.env.example to backend/.env and fill in your values.",
+            "Configure the selected AI provider before starting the service.",
             ", ".join(missing),
         )
         raise RuntimeError(
@@ -101,16 +100,16 @@ async def lifespan(app: FastAPI):
 
     logger.info("All required environment variables are present.")
 
-    # 2. Initialise the watsonx.ai model client.
+    # 2. Initialise the configured model provider.
     try:
         _model = watsonx_client.build_model()
-        logger.info("IBM watsonx.ai ModelInference client ready.")
+        logger.info("Configured %s model provider is ready.", provider_name)
     except Exception as exc:
         logger.error(
-            "Failed to initialise IBM watsonx.ai client; exception type: %s",
+            "Failed to initialise AI model provider; exception type: %s",
             type(exc).__name__,
         )
-        raise RuntimeError("IBM watsonx.ai initialization failed.") from None
+        raise RuntimeError("AI model provider initialization failed.") from None
 
     # 3. Start the MCP session manager only when MCP is enabled.
     if _mcp_module.MCP_ENABLED:
@@ -130,9 +129,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ElderCare AI Backend",
     description=(
-        "ElderCare AI backend powered by Meta Llama 3.3 70B via IBM watsonx.ai. "
-        "Exposes REST endpoints for chat and agent routing, and an MCP endpoint "
-        "for local tool access (disabled in production)."
+        "ElderCare AI supports IBM watsonx.ai (the default provider) and Google "
+        "Gemini. It exposes REST endpoints for chat and agent routing, and an "
+        "MCP endpoint for local tool access (disabled in production)."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -258,7 +257,8 @@ async def health():
 async def chat_endpoint(request: Request, req: ChatRequest):
     """
     Accepts a user message and optional conversation history.
-    Returns the Meta Llama 3.3 70B (IBM watsonx.ai) assistant reply.
+    Returns an assistant reply from the configured provider: IBM watsonx.ai
+    by default, or Google Gemini when selected.
 
     Rate limited to 10 requests per minute per IP address.
     Error responses contain only a generic user-facing message.
