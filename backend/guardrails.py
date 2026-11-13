@@ -425,10 +425,15 @@ _UNSAFE_MEDICATION_RECOMMENDATION = re.compile(
     re.IGNORECASE,
 )
 _SAFE_MEDICATION_ROUTINE = re.compile(
-    r"\b(?:you should|i recommend you|you can)\s+take\s+"
+    r"\b(?:(?:you should|i recommend you|you can)\s+)?take\s+"
     r"(?:your\s+)?(?:medicines?|medications?)\s+"
-    r"(?:as prescribed|according to (?:your\s+)?"
-    r"(?:prescribed\s+)?schedule|at the same time each day)\b",
+    r"(?:(?:every\s+(?:morning|day|evening)\s+)?as prescribed|"
+    r"according to (?:your\s+)?"
+    r"(?:prescribed\s+)?schedule|at the same time each day)\b|"
+    r"\bfollow (?:your )?existing prescribed "
+    r"(?:medicine|medication) schedule\b"
+    r"|\buse a daily alarm to remember (?:your )?"
+    r"prescribed (?:medicine|medication)\b",
     re.IGNORECASE,
 )
 _UNSAFE_MODEL_OUTPUT = (

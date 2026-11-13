@@ -678,6 +678,9 @@ class IntegrationGuardrailTests(unittest.TestCase):
             "for each dose.",
             "You can take your medication at the same time each day and use "
             "a reminder.",
+            "Take your medicine every morning as prescribed.",
+            "Follow your existing prescribed medication schedule.",
+            "Use a daily alarm to remember your prescribed medicine.",
             "Follow your doctor's prescribed medication schedule and set an "
             "alarm for each dose.",
             "Use the medicine reminder to remember your existing prescribed "
@@ -709,6 +712,20 @@ class IntegrationGuardrailTests(unittest.TestCase):
             "I recommend you take 20 mg of this medicine.",
             "You should take your medication as prescribed. You can start a "
             "new medication now.",
+            "You should take your medicine every morning as prescribed. "
+            "You should start a new medication now.",
+            "You should take your medicine every morning as prescribed. "
+            "You should stop your medication.",
+            "You should take your medicine every morning as prescribed. "
+            "You should increase your medication dose.",
+            "You should take your medicine every morning as prescribed. "
+            "You should decrease your medication dose.",
+            "You should take your medicine every morning as prescribed. "
+            "You should take extra medication.",
+            "You should take your medicine every morning as prescribed. "
+            "Take two tablets to make up for the missed dose.",
+            "You should take your medicine every morning as prescribed. "
+            "You should take 20 mg of this medicine.",
         )
         for output in unsafe_outputs:
             with self.subTest(output=output):
