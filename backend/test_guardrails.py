@@ -44,6 +44,27 @@ class AgentRoutingTests(unittest.TestCase):
         )
         self.assertTrue(guardrails.assess_request(message).can_proceed)
 
+    def test_prescribed_medicine_reminder_questions_route_to_medicine_advisor(self):
+        messages = (
+            "I take my prescribed medicine every morning. Can you suggest ways "
+            "to remember my medicine schedule?",
+            "Can you suggest ways to remember my prescribed medication schedule?",
+            "Can you suggest setting an alarm to remember my prescribed medicine?",
+            "Can you suggest using reminders to remember my existing medication "
+            "schedule?",
+            "Can you suggest a reminder for my medicine schedule?",
+        )
+        model = Mock()
+        model.generate.return_value = (
+            "Set a daily alarm or use a reminder to follow your existing schedule."
+        )
+
+        for message in messages:
+            with self.subTest(message=message):
+                self.assertTrue(guardrails.assess_request(message).can_proceed)
+                result = orchestrator.run(model, message, [])
+                self.assertEqual(result["agent_name"], "MedicineAdvisor")
+
     def test_loneliness_routes_to_wellbeing_companion(self):
         self.assertEqual(
             orchestrator._classify("I feel lonely and stressed today.").name,
@@ -212,6 +233,17 @@ class GuardrailDecisionTests(unittest.TestCase):
         )
         self.assert_blocked(
             "Can I take aspirin with warfarin?", "medical_safety"
+        )
+        self.assert_blocked(
+            "Can you suggest a medicine for my pain?", "medical_safety"
+        )
+        self.assert_blocked(
+            "Can you suggest ways to remember what medicine I should start?",
+            "medical_safety",
+        )
+        self.assert_blocked(
+            "Can you suggest ways to remember what medication I should stop?",
+            "medical_safety",
         )
 
     def test_missed_dose_double_up_gets_specific_safety_guidance(self):

@@ -345,10 +345,15 @@ _MISSED_DOSE_DOUBLE_UP = re.compile(
 )
 
 _PRESCRIPTION_REQUEST = re.compile(
-    r"\b(?:prescribe|prescription for|recommend|suggest)\b.{0,60}\b"
+    r"\b(?:prescribe|prescription for)\b.{0,60}\b"
+    r"(?:medicine|medication|drug|pill|tablet|dose|dosage|treatment)\b|"
+    r"\b(?:recommend|suggest)\b"
+    r"(?:(?!\b(?:remember|remind(?:er)?|alarm|forget|forgetting)\b).){0,60}\b"
     r"(?:medicine|medication|drug|pill|tablet|dose|dosage|treatment)\b|"
     r"\b(?:what|which) (?:medicine|medication|drug|pill|tablet) "
-    r"should i (?:take|use)\b|"
+    r"should i (?:take|use|start|stop)\b|"
+    r"\b(?:what|which) (?:medicine|medication|drug|pill|tablet)\b"
+    r".{0,40}\bi should (?:start|stop)\b|"
     r"\bwhat (?:should|can|could) i take\b.{0,40}\b"
     r"(?:for|to treat)\b|"
     r"\b(?:what|which) (?:medicine|medication|drug|pill|tablet) "
